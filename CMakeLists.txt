@@ -1,0 +1,5 @@
+project(http_server)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/inc)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src SRC_LIST)
+set(EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/output)
+add_executable(http_server ${SRC_LIST})

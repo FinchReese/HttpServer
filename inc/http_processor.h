@@ -6,10 +6,10 @@
 const unsigned int MAX_READ_BUFF_LEN = 2048;
 const unsigned int MAX_WRITE_BUFF_LEN = 1024;
 
-enum GetALineState : unsigned char {
-    GET_A_LINE_OK = 0,
-    GET_A_LINE_CONTINUE = 1,
-    GET_A_LINE_ERROR = 2,
+enum GetSingleLineState : unsigned char {
+    GET_SINGLE_LINE_OK = 0,
+    GET_SINGLE_LINE_CONTINUE = 1,
+    GET_SINGLE_LINE_ERROR = 2,
 };
 
 enum HttpProcessState : unsigned int {
@@ -22,6 +22,7 @@ enum ParseRequestReturnCode: unsigned int {
     PARSE_REQUEST_RETURN_CODE_FINISH = 0, // 解析请求消息完成
     PARSE_REQUEST_RETURN_CODE_ERROR = 1, // 解析请求消息出错
     PARSE_REQUEST_RETURN_CODE_CONTINUE = 2, // 需要继续解析
+    PARSE_REQUEST_RETURN_CODE_WAIT_FOR_READ = 3, // 等待读取更多的信息
 };
 
 enum ResponseStatusCode : unsigned int {
@@ -53,11 +54,10 @@ public:
     SendResponseReturnCode Write();
     void Init();
     bool ProcessRequest();
-    GetALineState GetALine();
     ParseRequestReturnCode ParseRequestLine();
     bool GetField(char *&field);
 private:
-    GetALineState GetALine();
+    GetSingleLineState GetSingleLine();
 private:
     char *m_sourceDir{ nullptr };
     char m_request[MAX_READ_BUFF_LEN]{ 0 }; // 记录请求报文

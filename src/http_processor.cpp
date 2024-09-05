@@ -137,89 +137,42 @@ void HttpProcessor::Init()
 
 ParseRequestReturnCode HttpProcessor::ParseRequest()
 {
-    GetALineState getALineState;
     ParseRequestReturnCode ret;
     while (true) {
-        getALineState = GetALine();
-        switch (getALineState) {
-            case GET_A_LINE_CONTINUE: {
-                return PARSE_REQUEST_RETURN_CODE_CONTINUE;
+        switch (m_processState) {
+            case HTTP_PROCESS_STATE_PARSE_REQUEST_LINE: {
+                ret = ParseRequestLine();
+                break;
             }
-            case GET_A_LINE_ERROR: {
-                return PARSE_REQUEST_RETURN_CODE_ERROR;
+            case HTTP_PROCESS_STATE_PARSE_HEAD_FIELD: {
+                ret = ParseHeadFields();
+                break;
             }
-            case GET_A_LINE_OK: {
-                ret = ParseSingleLine();
-                if (ret == PARSE_REQUEST_RETURN_CODE_CONTINUE) {
-                    break;
-                } else {
-                    return ret;
-                }
+            case HTTP_PROCESS_STATE_PARSE_MESSAGE_BODY: {
+                ret = ParseContent();
+                break;
             }
             default: {
-                return PARSE_REQUEST_RETURN_CODE_ERROR;
-            }
-        }
-    }
-
-    return PARSE_REQUEST_RETURN_CODE_ERROR;
-}
-
-// 尝试找到"\r\n"，是换行的标记
-GetALineState HttpProcessor::GetALine()
-{
-    if (m_currentIndex >= m_currentRequestSize) {
-        return GET_A_LINE_CONTINUE;
-    }
-
-    while (m_currentIndex < m_currentRequestSize) {
-        switch (m_request[m_currentIndex]) {
-            case '\r': {
-                if (m_currentIndex + 1 < m_currentRequestSize) {
-                    if (m_request[m_currentIndex + 1] == '\n') {
-                        m_request[m_currentIndex++] = END_CHAR ;
-                        m_request[m_currentIndex++] = END_CHAR ;
-                        return GET_A_LINE_OK;
-                    } else {
-                        return GET_A_LINE_ERROR;
-                    }
-                } else {
-                    return GET_A_LINE_CONTINUE;
-                }
-            }
-            case '\n': {
-                return GET_A_LINE_ERROR;
-            }
-            default: {
-                m_currentIndex++;
+                printf("ERROR Invalid state:%u.\n", m_processState);
+                ret = PARSE_REQUEST_RETURN_CODE_ERROR;
                 break;
             }
         }
-    }
-    return GET_A_LINE_CONTINUE;
-}
-
-ParseRequestReturnCode HttpProcessor::ParseSingleLine()
-{
-    switch (m_processState) {
-        case HTTP_PROCESS_STATE_PARSE_REQUEST_LINE: {
-            return ParseRequestLine();
-        }
-        case HTTP_PROCESS_STATE_PARSE_HEAD_FIELD: {
-            return ParseHeadFields();
-        }
-        case HTTP_PROCESS_STATE_PARSE_MESSAGE_BODY: {
-            return ParseContent();
-        }
-        default: {
-            printf("ERROR Invalid state:%u.\n", m_processState);
-            return PARSE_REQUEST_RETURN_CODE_ERROR;
+        if (ret != PARSE_REQUEST_RETURN_CODE_CONTINUE) {
+            return ret;
         }
     }
 }
 
 ParseRequestReturnCode HttpProcessor::ParseRequestLine()
 {
+    GetSingleLineState state = GetSingleLine();
+    if (state == GET_SINGLE_LINE_ERROR) {
+        return PARSE_REQUEST_RETURN_CODE_ERROR;
+    }
+    if (state == GET_SINGLE_LINE_CONTINUE) {
+        return PARSE_REQUEST_RETURN_CODE_WAIT_FOR_READ;
+    }
     if (GetField(m_method) == false) {
         printf("ERROR Get method fail.\n");
         return PARSE_REQUEST_RETURN_CODE_ERROR;
@@ -255,6 +208,40 @@ ParseRequestReturnCode HttpProcessor::ParseRequestLine()
     return PARSE_REQUEST_RETURN_CODE_CONTINUE;
 }
 
+// 尝试找到"\r\n"，是换行的标记
+GetSingleLineState HttpProcessor::GetSingleLine()
+{
+    if (m_currentIndex >= m_currentRequestSize) {
+        return GET_SINGLE_LINE_CONTINUE;
+    }
+
+    while (m_currentIndex < m_currentRequestSize) {
+        switch (m_request[m_currentIndex]) {
+            case '\r': {
+                if (m_currentIndex + 1 < m_currentRequestSize) {
+                    if (m_request[m_currentIndex + 1] == '\n') {
+                        m_request[m_currentIndex++] = END_CHAR ;
+                        m_request[m_currentIndex++] = END_CHAR ;
+                        return GET_SINGLE_LINE_OK;
+                    } else {
+                        return GET_SINGLE_LINE_ERROR;
+                    }
+                } else {
+                    return GET_SINGLE_LINE_CONTINUE;
+                }
+            }
+            case '\n': {
+                return GET_SINGLE_LINE_ERROR;
+            }
+            default: {
+                m_currentIndex++;
+                break;
+            }
+        }
+    }
+    return GET_SINGLE_LINE_CONTINUE;
+}
+
 bool HttpProcessor::GetField(char *&field)
 {
     char *ret = strpbrk(m_startPos, WHITE_SPACE_CHARS);
@@ -271,6 +258,13 @@ bool HttpProcessor::GetField(char *&field)
 
 ParseRequestReturnCode HttpProcessor::ParseHeadFields()
 {
+    GetSingleLineState state = GetSingleLine();
+    if (state == GET_SINGLE_LINE_ERROR) {
+        return PARSE_REQUEST_RETURN_CODE_ERROR;
+    }
+    if (state == GET_SINGLE_LINE_CONTINUE) {
+        return PARSE_REQUEST_RETURN_CODE_WAIT_FOR_READ;
+    }
     if (m_startPos == END_CHAR) {
         if (m_contentLen != 0) {
             m_processState = HTTP_PROCESS_STATE_PARSE_MESSAGE_BODY;
@@ -326,7 +320,7 @@ ParseRequestReturnCode HttpProcessor::ParseContent()
         return PARSE_REQUEST_RETURN_CODE_FINISH;
     }
 
-    return PARSE_REQUEST_RETURN_CODE_CONTINUE;
+    return PARSE_REQUEST_RETURN_CODE_WAIT_FOR_READ;
 }
 
 bool HttpProcessor::Response(const ParseRequestReturnCode returnCode)

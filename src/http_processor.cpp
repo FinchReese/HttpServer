@@ -2,6 +2,9 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "http_processor.h"
 
 const char *WHITE_SPACE_CHARS = " \t";
@@ -14,7 +17,6 @@ const char *CONTENT_LENGTH_KEY_NAME = "Content-Length";
 const char *CONNECTION_KEY_NAME = "Connection";
 const char *KEEP_ALIVE_VALUE = "keep-alive";
 const char *CLOSE_ALIVE_VALUE = "close";
-const char *HTTP_VERSION = "HTTP/1.1";
 const char *OK_TITLE = "OK";
 const char *BAD_REQUEST_TITLE = "Bad Request";
 const char *BAD_REQUEST_CONTENT = "Your request has bad syntax or is inherently impossible to satisfy.\n";
@@ -25,19 +27,6 @@ const char *NOT_FOUND_CONTENT = "The request file was not found on this server.\
 const char *INTERNAL_SERVER_ERROR_TITLE = "Internal Server Error";
 const char *INTERNAL_SERVER_ERROR_CONTENT = "There was an unusual problem serving the requested file.\n";
 const unsigned int MAX_FILE_NAME_LEN = 200;
-
-void (HttpProcessor::*ParseHeadFieldValueStr)();
-typedef struct {
-    const char *keyName;
-    ParseHeadFieldValueStr parseFunc;
-} KeyNameAndParseFuncMap;
-
-const KeyNameAndParseFuncMap KEY_NAME_AND_PARSE_FUNC_MAP_LIST[] = {
-    { CONTENT_LENGTH_KEY_NAME, HttpProcessor::ParseContentLength },
-    { CONNECTION_KEY_NAME, HttpProcessor::ParseConnection },
-};
-const KeyNameAndParseFuncMap KEY_NAME_AND_PARSE_FUNC_MAP_LIST_SIZE =
-    sizeof(KEY_NAME_AND_PARSE_FUNC_MAP_LIST) / sizeof(KEY_NAME_AND_PARSE_FUNC_MAP_LIST[0]);
 
 typedef struct {
     ResponseStatusCode statusCode;
@@ -53,11 +42,18 @@ const StatusInfo ERROR_STATUS_INFO_LIST[] = {
 };
 const unsigned int ERROR_STATUS_INFO_LIST_SIZE = sizeof(ERROR_STATUS_INFO_LIST) / sizeof(ERROR_STATUS_INFO_LIST[0]);
 
-HttpProcessor::HttpProcessor(socketId, const char *sourceDir) : m_socketId(socketId), m_sourceDir(sourceDir)
+HttpProcessor::HttpProcessor(const int socketId, const char *sourceDir) : m_socketId(socketId), m_sourceDir(sourceDir)
 {}
 
 HttpProcessor::~HttpProcessor()
 {}
+
+bool HttpProcessor::ProcessReadEvent()
+{
+    ParseRequestReturnCode ret = ParseRequest();
+    printf("EVENT ParseRequest ret = %u\n", ret);
+    return true;
+}
 
 bool HttpProcessor::Read()
 {
@@ -66,7 +62,7 @@ bool HttpProcessor::Read()
         printf("ERROR read fail, socket id = %d\n", m_socketId);
         return false;
     }
-
+    printf("Read msg:\n%s\n", m_request);
     m_currentRequestSize += readSize;
     return true;
 }
@@ -88,6 +84,7 @@ SendResponseReturnCode HttpProcessor::Write()
             }
             munmap(m_fileAddr, m_fileSize);
             m_fileAddr = nullptr;
+            m_fileSize = 0;
             return SEND_RESPONSE_RETURN_CODE_ERROR;
         }
         unsigned int writeSize = static_cast<unsigned int >(ret);
@@ -96,6 +93,7 @@ SendResponseReturnCode HttpProcessor::Write()
         if (m_leftRespSize == 0) {
             munmap(m_fileAddr, m_fileSize);
             m_fileAddr = nullptr;
+            m_fileSize = 0;
             if (m_keepAlive) {
                 Init();
                 return SEND_RESPONSE_RETURN_CODE_NEXT;
@@ -103,10 +101,12 @@ SendResponseReturnCode HttpProcessor::Write()
             return SEND_RESPONSE_RETURN_CODE_FINISH;
         }
         // 更新向量信息
-        if (writeSize >= m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base) {
+        if (writeSize >= m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len) {
             m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = 0;
-            m_iov[CONTENT_VECTOR_INDEX].iov_base += writeSize;
-            m_iov[CONTENT_VECTOR_INDEX].iov_len -= writeSize;
+            unsigned int contentVectorOffset =
+                writeSize - m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len;
+            m_iov[CONTENT_VECTOR_INDEX].iov_base += contentVectorOffset;
+            m_iov[CONTENT_VECTOR_INDEX].iov_len -= contentVectorOffset;
         } else {
             m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base += writeSize;
             m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len -= writeSize;                
@@ -118,7 +118,7 @@ void HttpProcessor::Init()
 {
     (void)memset_s(m_request, sizeof(m_request), 0, sizeof(m_request));
     m_currentRequestSize = 0;
-    m_startPos = nullptr;
+    m_parseStartPos = m_request;
     m_currentIndex = 0;
     m_processState = HTTP_PROCESS_STATE_PARSE_REQUEST_LINE;
     m_method = nullptr;
@@ -148,7 +148,7 @@ ParseRequestReturnCode HttpProcessor::ParseRequest()
                 ret = ParseHeadFields();
                 break;
             }
-            case HTTP_PROCESS_STATE_PARSE_MESSAGE_BODY: {
+            case HTTP_PROCESS_STATE_PARSE_REQUEST_BODY: {
                 ret = ParseContent();
                 break;
             }
@@ -195,14 +195,9 @@ ParseRequestReturnCode HttpProcessor::ParseRequestLine()
         printf("ERROR Invalid url.\n");
         return PARSE_REQUEST_RETURN_CODE_ERROR;
     }
-    
-    m_httpVersion = m_startPos;
-    m_startPos += (strlen(m_startPos) + 1);
-    if (strcasecmp(m_httpVersion, "HTTP/1.0") != 0) {
-        printf("ERROR Support HTTP/1.0 only.\n");
-        return PARSE_REQUEST_RETURN_CODE_ERROR;
-    }
 
+    m_httpVersion = m_parseStartPos;
+    m_parseStartPos += (strlen(m_parseStartPos) + 2); // 2个结束符
     printf("EVENT Req info: %s %s %s\n", m_method, m_url, m_httpVersion);
     m_processState = HTTP_PROCESS_STATE_PARSE_HEAD_FIELD;
     return PARSE_REQUEST_RETURN_CODE_CONTINUE;
@@ -244,15 +239,15 @@ GetSingleLineState HttpProcessor::GetSingleLine()
 
 bool HttpProcessor::GetField(char *&field)
 {
-    char *ret = strpbrk(m_startPos, WHITE_SPACE_CHARS);
+    char *ret = strpbrk(m_parseStartPos, WHITE_SPACE_CHARS);
     if (ret == nullptr) {
-        printf("ERROR Can't find white-space char: %s\n", m_startPos);
+        printf("ERROR Can't find white-space char: %s\n", m_parseStartPos);
         return false;
     }
     *ret = END_CHAR ;
-    field = m_startPos;
+    field = m_parseStartPos;
     ret++;
-    m_startPos = ret + strspn(ret, whiteSpaceChars);
+    m_parseStartPos = ret + strspn(ret, WHITE_SPACE_CHARS);
     return true;
 }
 
@@ -265,58 +260,61 @@ ParseRequestReturnCode HttpProcessor::ParseHeadFields()
     if (state == GET_SINGLE_LINE_CONTINUE) {
         return PARSE_REQUEST_RETURN_CODE_WAIT_FOR_READ;
     }
-    if (m_startPos == END_CHAR) {
+    if (*m_parseStartPos == END_CHAR) {
         if (m_contentLen != 0) {
-            m_processState = HTTP_PROCESS_STATE_PARSE_MESSAGE_BODY;
+            m_processState = HTTP_PROCESS_STATE_PARSE_REQUEST_BODY;
             return PARSE_REQUEST_RETURN_CODE_CONTINUE;
         }
         return PARSE_REQUEST_RETURN_CODE_FINISH;
     }
 
-    for (unsigned int i = 0; i < KEY_NAME_AND_PARSE_FUNC_MAP_LIST_SIZE; ++i) {
-        KeyNameAndParseFuncMap map = KEY_NAME_AND_PARSE_FUNC_MAP_LIST[i];
-        if (strncasecmp(m_startPos, map.keyName, strlen(map.keyName)) != 0) {
+    for (auto iter = m_keyNameAndParseFuncMap.begin(); iter != m_keyNameAndParseFuncMap.end(); ++iter) {
+        if (strncasecmp(m_parseStartPos, iter->first, strlen(iter->first)) != 0) {
             continue;
         }
-        m_startPos += strlen(map.keyName);
-        if (m_startPos != HEAD_FIELD_SPLIT_CHAR) {
-            printf("ERROR invalid head field:%s.\n", m_startPos);
+        m_parseStartPos += strlen(iter->first);
+        if (*m_parseStartPos != HEAD_FIELD_SPLIT_CHAR) {
+            printf("ERROR invalid head field:%s.\n", m_parseStartPos);
             return PARSE_REQUEST_RETURN_CODE_ERROR;
         }
-        m_startPos += 1; // 跳过':'
-        m_startPos += strspn(m_startPos, "\t ");
-        map.parseFunc();
-        m_startPos += (strlen(m_startPos) + 2); // 2表示跳过\r\n
+        m_parseStartPos += 1; // 跳过':'
+        m_parseStartPos += strspn(m_parseStartPos, "\t ");
+        (this->*iter->second)();
+        m_parseStartPos += (strlen(m_parseStartPos) + 2); // 2表示跳过\r\n
         return PARSE_REQUEST_RETURN_CODE_CONTINUE;
     }
-    printf("DEBUG Not match req head:%s.\n", m_startPos);
-    m_startPos += (strlen(m_startPos) + 2); // 2表示跳过\r\n
+    printf("DEBUG Not match req head field:%s.\n", m_parseStartPos);
+    m_parseStartPos += (strlen(m_parseStartPos) + 2); // 2表示跳过\r\n
     return PARSE_REQUEST_RETURN_CODE_CONTINUE;
 }
 
 void HttpProcessor::ParseContentLength()
 {
-    m_contentLen = atol(m_startPos);
+    m_contentLen = atol(m_parseStartPos);
+    printf("INFO m_contentLen:%u\n", m_contentLen);
 }
 
 void HttpProcessor::ParseConnection()
 {
-    if (strcasecmp(m_startPos, KEEP_ALIVE_VALUE) == 0) {
+    if (strcasecmp(m_parseStartPos, KEEP_ALIVE_VALUE) == 0) {
         m_keepAlive = true;
     }
+    printf("INFO m_keepAlive:%u\n", m_keepAlive);
 }
 
 ParseRequestReturnCode HttpProcessor::ParseContent()
 {
-    unsigned int parseSize = m_startPos - m_request; // 消息体前面信息所占字节数
-    if (m_contentLen > MAX_READ_BUFF_LEN - parseSize) {
+    unsigned int parseSize = m_parseStartPos - m_request; // 请求体前面信息所占字节数
+    // 消息体所占字节数必须小于读缓冲区的剩余空间大小，预留一个结束符
+    if (m_contentLen >= sizeof(m_request) - parseSize) {
         printf("ERROR invalid Content-Length, m_contentLen = %u, parseSize = %u\n",
             m_contentLen, parseSize);
         return PARSE_REQUEST_RETURN_CODE_ERROR;
     }
-
+    // 当前读取的消息体字节数是否达到目标消息体字节数
     if (m_currentRequestSize - parseSize >= m_contentLen) {
-        m_startPos[m_contentLen] = END_CHAR ;
+        m_parseStartPos[m_contentLen] = END_CHAR ;
+        printf("EVENT Request body:\n%s\n", m_parseStartPos);
         return PARSE_REQUEST_RETURN_CODE_FINISH;
     }
 
@@ -328,10 +326,10 @@ bool HttpProcessor::Response(const ParseRequestReturnCode returnCode)
     switch (returnCode) {
         case PARSE_REQUEST_RETURN_CODE_FINISH: {
             ResponseStatusCode statusCode = HandleRequest();
-            return AddResponse(statusCode);
+            return FillResp(statusCode);
         }
         case PARSE_REQUEST_RETURN_CODE_ERROR: {
-            return AddResponse(RESPONSE_STATUS_CODE_BAD_REQUEST);
+            return FillResp(RESPONSE_STATUS_CODE_BAD_REQUEST);
         }
         case ARSE_REQUEST_RETURN_CODE_CONTINUE: {
             return true;
@@ -379,21 +377,22 @@ ResponseStatusCode HttpProcessor::HandleRequest()
     return RESPONSE_STATUS_CODE_OK;
 }
 
-bool HttpProcessor::AddResponse(const ResponseStatusCode statusCode)
+bool HttpProcessor::FillResp(const ResponseStatusCode statusCode)
 {
     for (unsigned int i = 0; i < ERROR_STATUS_INFO_LIST_SIZE; ++i) {
         if (statusCode == RESPONSE_STATUS_CODE_OK) {
-            return AddResponseInNormalCase();
+            return FillRespInNormalCase();
         }
         if (statusCode == ERROR_STATUS_INFO_LIST[i].statusCode) {
-            return AddResponseInErrorCase(ERROR_STATUS_INFO_LIST[i]);
+            return FillRespInErrorCase(ERROR_STATUS_INFO_LIST[i]);
         }
     }
 
     printf("ERROR Invalid statusCode: %u.\n", statusCode);
     return false;
 }
-bool HttpProcessor::AddResponseInNormalCase()
+
+bool HttpProcessor::FillRespInNormalCase()
 {
     if (!AddStatusLine(RESPONSE_STATUS_CODE_OK, OK_TITLE)) {
         return false;
@@ -411,12 +410,12 @@ bool HttpProcessor::AddResponseInNormalCase()
     return true;
 }
 
-bool HttpProcessor::AddResponseInErrorCase(const StatusInfo statusInfo)
+bool HttpProcessor::FillRespInErrorCase(const StatusInfo statusInfo)
 {
     if (!AddStatusLine(statusInfo.statusCode, statusInfo.statusTitle)) {
         return false;
     }
-    if (!AddHeadField(strlen(statusInfo.statusTitle))) {
+    if (!AddHeadField(strlen(statusInfo.statusContent))) {
         return false;
     }
     if (!AddContent(statusInfo.statusContent)) {
@@ -432,12 +431,8 @@ bool HttpProcessor::AddResponseInErrorCase(const StatusInfo statusInfo)
 
 bool HttpProcessor::AddStatusLine(const int status, const char *title)
 {
-    if (m_writeSize >= MAX_WRITE_BUFF_LEN) {
-        printf("ERROR Write buffer is full, m_writeSize = %u\n", m_writeSize);
-        return false;
-    }
-    int ret = sprintf_s(m_writeBuff, MAX_WRITE_BUFF_LEN - m_writeSize, "%s %d %s\r\n",
-        HTTP_VERSION, status, title);
+    int ret = sprintf_s(m_writeBuff, MAX_WRITE_BUFF_LEN, "%s %d %s\r\n",
+        m_httpVersion, status, title);
     if (ret == -1) {
         printf("ERROR Write buffer fail.\n");
         return false;

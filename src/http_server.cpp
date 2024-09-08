@@ -6,8 +6,7 @@
 #include <signal.h>
 #include <errno.h>
 #include "http_server.h"
-
-const unsigned int MAX_READ_BUFF_LEN = 1024; // 每次从客户端最多读取1024字节数据到缓冲区
+#include "http_processor.h"
 
 HttpServer::HttpServer()
 {}
@@ -188,26 +187,33 @@ void HttpServer::HandleServerReadEvent()
 
 void HttpServer::HandleClientReadEvent(const int client)
 {
-    char readBuff[MAX_READ_BUFF_LEN + 1] = { 0 };
-    ssize_t n = read(client, readBuff, MAX_READ_BUFF_LEN);
-    if (n <= 0) {
-        int ret = epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-        if (ret == -1) {
-            return;
-        }
+    HttpProcessor httpProcessor(client, "");
+    bool ret = httpProcessor.ProcessReadEvent();
+    printf("EVENT ProcessReadEvent ret=%u.\n", ret);
+    if (!ret) {
+        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
         close(client);
-    } else {
-        // 调试时，只打印收到的信息，先不回复
-        struct sockaddr_in clientAddr = { 0 };
-        socklen_t clientAddrLen = sizeof(clientAddr);
-        int ret = getsockname(client, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
-        if (ret == -1) {
-            printf("DEBUG  client recv msg:\n%s\n", readBuff);
-        } else {
-        printf("DEBUG  client %s:%hu recv msg:\n%s\n", inet_ntoa(clientAddr.sin_addr),
-            ntohs(clientAddr.sin_port), readBuff);
-        }
     }
+    // char readBuff[MAX_READ_BUFF_LEN + 1] = { 0 };
+    // ssize_t n = read(client, readBuff, MAX_READ_BUFF_LEN);
+    // if (n <= 0) {
+    //     int ret = epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+    //     if (ret == -1) {
+    //         return;
+    //     }
+    //     close(client);
+    // } else {
+    //     // 调试时，只打印收到的信息，先不回复
+    //     struct sockaddr_in clientAddr = { 0 };
+    //     socklen_t clientAddrLen = sizeof(clientAddr);
+    //     int ret = getsockname(client, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
+    //     if (ret == -1) {
+    //         printf("DEBUG  client recv msg:\n%s\n", readBuff);
+    //     } else {
+    //     printf("DEBUG  client %s:%hu recv msg:\n%s\n", inet_ntoa(clientAddr.sin_addr),
+    //         ntohs(clientAddr.sin_port), readBuff);
+    //     }
+    // }
 }
 
 void HttpServer::clear()

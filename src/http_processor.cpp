@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include "http_processor.h"
 
 const char *WHITE_SPACE_CHARS = " \t";
@@ -28,12 +29,6 @@ const char *INTERNAL_SERVER_ERROR_TITLE = "Internal Server Error";
 const char *INTERNAL_SERVER_ERROR_CONTENT = "There was an unusual problem serving the requested file.\n";
 const unsigned int MAX_FILE_NAME_LEN = 200;
 
-typedef struct {
-    ResponseStatusCode statusCode;
-    const char *statusTitle;
-    const char *statusContent;
-} StatusInfo;
-
 const StatusInfo ERROR_STATUS_INFO_LIST[] = {
     { RESPONSE_STATUS_CODE_BAD_REQUEST, BAD_REQUEST_TITLE, BAD_REQUEST_CONTENT },
     { RESPONSE_STATUS_CODE_FORBIDDEN, FORBIDDEN_TITLE, FORBIDDEN_CONTENT },
@@ -42,7 +37,7 @@ const StatusInfo ERROR_STATUS_INFO_LIST[] = {
 };
 const unsigned int ERROR_STATUS_INFO_LIST_SIZE = sizeof(ERROR_STATUS_INFO_LIST) / sizeof(ERROR_STATUS_INFO_LIST[0]);
 
-HttpProcessor::HttpProcessor(const int socketId, const char *sourceDir) : m_socketId(socketId), m_sourceDir(sourceDir)
+HttpProcessor::HttpProcessor(const int socketId, const std::string &sourceDir) : m_socketId(socketId), m_sourceDir(sourceDir)
 {}
 
 HttpProcessor::~HttpProcessor()
@@ -52,7 +47,7 @@ bool HttpProcessor::ProcessReadEvent()
 {
     ParseRequestReturnCode ret = ParseRequest();
     printf("EVENT ParseRequest ret = %u\n", ret);
-    return true;
+    return Response(ret);
 }
 
 bool HttpProcessor::Read()
@@ -73,10 +68,10 @@ SendResponseReturnCode HttpProcessor::Write()
         printf("ERROR No content need to send.\n");
         return SEND_RESPONSE_RETURN_CODE_ERROR;
     }
-
+    printf("EVENT m_writeBuff:\n%s\n", m_writeBuff);
     ssize_t ret;
     while (true) {
-        ret = writev(m_sockfd, m_iov, m_cnt);
+        ret = writev(m_socketId, m_iov, m_cnt);
         // 发送回复消息异常
         if (ret == -1) {
             if (errno == EAGAIN) {
@@ -102,13 +97,14 @@ SendResponseReturnCode HttpProcessor::Write()
         }
         // 更新向量信息
         if (writeSize >= m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len) {
+            unsigned int contentVectorOffset = writeSize - m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len;
             m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = 0;
-            unsigned int contentVectorOffset =
-                writeSize - m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len;
-            m_iov[CONTENT_VECTOR_INDEX].iov_base += contentVectorOffset;
+            m_iov[CONTENT_VECTOR_INDEX].iov_base = 
+                reinterpret_cast<void *>(reinterpret_cast<char *>(m_iov[CONTENT_VECTOR_INDEX].iov_base) + contentVectorOffset);
             m_iov[CONTENT_VECTOR_INDEX].iov_len -= contentVectorOffset;
         } else {
-            m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base += writeSize;
+            m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base =
+                reinterpret_cast<void *>(reinterpret_cast<char *>(m_iov[CONTENT_VECTOR_INDEX].iov_base) + writeSize);
             m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len -= writeSize;                
         }
     }
@@ -116,7 +112,7 @@ SendResponseReturnCode HttpProcessor::Write()
 
 void HttpProcessor::Init()
 {
-    (void)memset_s(m_request, sizeof(m_request), 0, sizeof(m_request));
+    memset(m_request, 0, sizeof(m_request));
     m_currentRequestSize = 0;
     m_parseStartPos = m_request;
     m_currentIndex = 0;
@@ -126,11 +122,11 @@ void HttpProcessor::Init()
     m_httpVersion = nullptr;
     m_contentLen = 0;
     m_keepAlive = false;
-    (void)memset_s(m_writeBuff, sizeof(m_writeBuff), 0, sizeof(m_writeBuff));
+    memset(m_writeBuff, 0, sizeof(m_writeBuff));
     m_writeSize = 0;
     m_fileAddr = nullptr;
     m_fileSize = 0;
-    (void)memset_s(m_iov, sizeof(m_iov), 0, sizeof(m_iov));
+    memset(m_iov, 0, sizeof(m_iov));
     int m_cnt = 0;
     m_leftRespSize = 0; // 剩余回复字节数
 }
@@ -331,7 +327,7 @@ bool HttpProcessor::Response(const ParseRequestReturnCode returnCode)
         case PARSE_REQUEST_RETURN_CODE_ERROR: {
             return FillResp(RESPONSE_STATUS_CODE_BAD_REQUEST);
         }
-        case ARSE_REQUEST_RETURN_CODE_CONTINUE: {
+        case PARSE_REQUEST_RETURN_CODE_CONTINUE: {
             return true;
         }
         default: {
@@ -344,9 +340,9 @@ bool HttpProcessor::Response(const ParseRequestReturnCode returnCode)
 ResponseStatusCode HttpProcessor::HandleRequest()
 {
     char filePath[MAX_FILE_NAME_LEN] = { 0 };
-    int ret = sprintf_s(filePath, MAX_FILE_NAME_LEN, "%s%s", m_sourceDir, m_url);
+    int ret = sprintf(filePath, "%s%s", m_sourceDir.c_str(), m_url);
     if (ret == -1) {
-       printf("ERROR Get file path fail, dir:%s, url:%s.\n", m_sourceDir, m_url);
+       printf("ERROR Get file path fail, dir:%s, url:%s.\n", m_sourceDir.c_str(), m_url);
        return RESPONSE_STATUS_CODE_INTERNAL_SERVER_ERROR;
     }
 
@@ -372,17 +368,17 @@ ResponseStatusCode HttpProcessor::HandleRequest()
         return RESPONSE_STATUS_CODE_INTERNAL_SERVER_ERROR; 
     }
     m_fileSize = fileStat.st_size;
-    m_fileAddr = reinterpret_cast<char *>mmap(0, m_fileSize, PORT_READ, MAP_PRIVATE, fd, 0);
+    m_fileAddr = reinterpret_cast<char *>(mmap(0, m_fileSize, PROT_READ, MAP_PRIVATE, fd, 0));
     close(fd);
     return RESPONSE_STATUS_CODE_OK;
 }
 
 bool HttpProcessor::FillResp(const ResponseStatusCode statusCode)
 {
+    if (statusCode == RESPONSE_STATUS_CODE_OK) {
+        return FillRespInNormalCase();
+    }
     for (unsigned int i = 0; i < ERROR_STATUS_INFO_LIST_SIZE; ++i) {
-        if (statusCode == RESPONSE_STATUS_CODE_OK) {
-            return FillRespInNormalCase();
-        }
         if (statusCode == ERROR_STATUS_INFO_LIST[i].statusCode) {
             return FillRespInErrorCase(ERROR_STATUS_INFO_LIST[i]);
         }
@@ -402,7 +398,7 @@ bool HttpProcessor::FillRespInNormalCase()
     }
 
     m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base = m_writeBuff;
-    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize;
+    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize + 1;
     m_iov[CONTENT_VECTOR_INDEX].iov_base = m_fileAddr;
     m_iov[CONTENT_VECTOR_INDEX].iov_len = m_fileSize;
     m_cnt = 2;
@@ -423,7 +419,7 @@ bool HttpProcessor::FillRespInErrorCase(const StatusInfo statusInfo)
     }
 
     m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base = m_writeBuff;
-    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize;
+    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize + 1;
     m_cnt = 1;
     m_leftRespSize = m_writeSize;
     return true;
@@ -431,7 +427,7 @@ bool HttpProcessor::FillRespInErrorCase(const StatusInfo statusInfo)
 
 bool HttpProcessor::AddStatusLine(const int status, const char *title)
 {
-    int ret = sprintf_s(m_writeBuff, MAX_WRITE_BUFF_LEN, "%s %d %s\r\n",
+    int ret = sprintf(m_writeBuff, "%s %d %s\r\n",
         m_httpVersion, status, title);
     if (ret == -1) {
         printf("ERROR Write buffer fail.\n");
@@ -449,23 +445,21 @@ bool HttpProcessor::AddHeadField(const unsigned int contentLen)
         return false;
     }
     // 添加消息体长度
-    int ret = sprintf_s(m_writeBuff, MAX_WRITE_BUFF_LEN - m_writeSize,
-        "Content-Length: %d\r\n", contentLen);
+    int ret = sprintf(m_writeBuff + m_writeSize, "Content-Length: %d\r\n", contentLen);
     if (ret == -1) {
         printf("ERROR Write buffer fail.\n");
         return false;
     }
     m_writeSize += static_cast<unsigned int>(ret);
     // 添加连接方式
-    ret = sprintf_s(m_writeBuff, MAX_WRITE_BUFF_LEN - m_writeSize,
-        "Connection: %s\r\n", m_keepAlive ? KEEP_ALIVE_VALUE : CLOSE_ALIVE_VALUE);
+    ret = sprintf(m_writeBuff + m_writeSize, "Connection: %s\r\n", m_keepAlive ? KEEP_ALIVE_VALUE : CLOSE_ALIVE_VALUE);
     if (ret == -1) {
         printf("ERROR Write buffer fail.\n");
         return false;
     }
     m_writeSize += static_cast<unsigned int>(ret);
     // 添加空行
-    ret = sprintf_s(m_writeBuff, MAX_WRITE_BUFF_LEN - m_writeSize, "\r\n");
+    ret = sprintf(m_writeBuff + m_writeSize, "\r\n");
     if (ret == -1) {
         printf("ERROR Write buffer fail.\n");
         return false;
@@ -481,8 +475,7 @@ bool HttpProcessor::AddContent(const char *content)
         return false;
     }
 
-    int ret = sprintf_s(m_writeBuff, MAX_WRITE_BUFF_LEN - m_writeSize, "%s\r\n",
-        content);
+    int ret = sprintf(m_writeBuff + m_writeSize, "%s", content);
     if (ret == -1) {
         printf("ERROR Write buffer fail.\n");
         return false;

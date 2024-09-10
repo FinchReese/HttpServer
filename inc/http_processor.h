@@ -51,15 +51,21 @@ enum VectorIndex {
 extern const char *CONTENT_LENGTH_KEY_NAME;
 extern const char *CONNECTION_KEY_NAME;
 
+typedef struct {
+    ResponseStatusCode statusCode;
+    const char *statusTitle;
+    const char *statusContent;
+} StatusInfo;
+
 class HttpProcessor {
 public:
-    HttpProcessor(const int socketId, const char *sourceDir);
+    HttpProcessor(const int socketId, const std::string &sourceDir);
     ~HttpProcessor();
     bool Read();
     SendResponseReturnCode Write();
-    void Init();
     bool ProcessReadEvent();
 private:
+    void Init();
     ParseRequestReturnCode ParseRequest();
     ParseRequestReturnCode ParseRequestLine();
     GetSingleLineState GetSingleLine();
@@ -69,6 +75,7 @@ private:
     void ParseConnection();
     ParseRequestReturnCode ParseContent();
     bool Response(const ParseRequestReturnCode returnCode);
+    ResponseStatusCode HandleRequest();
     bool FillResp(const ResponseStatusCode statusCode);
     bool FillRespInNormalCase();
     bool FillRespInErrorCase(const StatusInfo statusInfo);

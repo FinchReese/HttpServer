@@ -6,7 +6,6 @@
 #include <signal.h>
 #include <errno.h>
 #include "http_server.h"
-#include "http_processor.h"
 
 HttpServer::HttpServer()
 {}
@@ -23,7 +22,7 @@ HttpServer &HttpServer::GetInstance()
 }
 
 void HttpServer::Run(const char *ipAddr, const unsigned short int portId,  const unsigned int backlog,
-    const int epollSize)
+    const int epollSize, const char *sourceDir)
 {
     if (InitServer(ipAddr, portId, backlog) == false) {
         return;
@@ -41,6 +40,7 @@ void HttpServer::Run(const char *ipAddr, const unsigned short int portId,  const
         clear();
         return;
     }
+    m_sourceDir = sourceDir;
     EventLoop(epollSize);
     clear();
 }
@@ -145,15 +145,18 @@ void HttpServer::EventLoop(const int epollSize)
             }
         }
         for (unsigned int i = 0; i < static_cast<unsigned int>(ret); ++i) {
-            if (events[i].events & EPOLLIN == 0) {
-                continue;
-            }
             int socket = events[i].data.fd;
-            if (socket == m_server) {
-                HandleServerReadEvent();
-            } else {
-                HandleClientReadEvent(socket);
+            if (events[i].events & EPOLLIN) {
+                if (socket == m_server) {
+                    HandleServerReadEvent();
+                } else {
+                    HandleClientReadEvent(socket);
+                }
+            } else if (events[i].events & EPOLLOUT) {
+                printf("EVENT EPOLLOUT \n");
+                HandleWriteEvent(socket);
             }
+
         }
     }
 
@@ -183,37 +186,77 @@ void HttpServer::HandleServerReadEvent()
         close(client);
         return;
     }
+    HttpProcessor *httpProcessor = new HttpProcessor(client, m_sourceDir);
+    if (httpProcessor == nullptr) {
+        printf("ERROR  Create HttpProcessor fail.\n");
+        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+        close(client);
+        return;
+    }
+    m_fdAndProcessorMap[client] = httpProcessor;
 }
 
 void HttpServer::HandleClientReadEvent(const int client)
 {
-    HttpProcessor httpProcessor(client, "");
-    bool ret = httpProcessor.ProcessReadEvent();
+    std::map<int, HttpProcessor*>::iterator iter = m_fdAndProcessorMap.find(client);
+    if (iter == m_fdAndProcessorMap.end()) {
+        printf("ERROR client[%d] not match processer.\n", client);
+        return;
+    }
+    HttpProcessor *httpProcessor = iter->second;
+    bool ret = httpProcessor->Read();
+    if (!ret) {
+        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+        close(client);
+        m_fdAndProcessorMap.erase(iter);
+    }
+    ret = httpProcessor->ProcessReadEvent();
     printf("EVENT ProcessReadEvent ret=%u.\n", ret);
     if (!ret) {
         epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
         close(client);
+        m_fdAndProcessorMap.erase(iter);
     }
-    // char readBuff[MAX_READ_BUFF_LEN + 1] = { 0 };
-    // ssize_t n = read(client, readBuff, MAX_READ_BUFF_LEN);
-    // if (n <= 0) {
-    //     int ret = epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-    //     if (ret == -1) {
-    //         return;
-    //     }
-    //     close(client);
-    // } else {
-    //     // 调试时，只打印收到的信息，先不回复
-    //     struct sockaddr_in clientAddr = { 0 };
-    //     socklen_t clientAddrLen = sizeof(clientAddr);
-    //     int ret = getsockname(client, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
-    //     if (ret == -1) {
-    //         printf("DEBUG  client recv msg:\n%s\n", readBuff);
-    //     } else {
-    //     printf("DEBUG  client %s:%hu recv msg:\n%s\n", inet_ntoa(clientAddr.sin_addr),
-    //         ntohs(clientAddr.sin_port), readBuff);
-    //     }
-    // }
+    // 注册客户端的监听写事件
+    struct epoll_event clientEvent = { 0 };
+    clientEvent.events = EPOLLOUT;
+    clientEvent.data.fd = client;
+    int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
+    if (res == -1) {
+        printf("ERROR Register write event fail.\n");
+        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+        close(client);
+        m_fdAndProcessorMap.erase(iter);
+        return;
+    }
+}
+
+void HttpServer::HandleWriteEvent(const int client)
+{
+    std::map<int, HttpProcessor*>::iterator iter = m_fdAndProcessorMap.find(client);
+    if (iter == m_fdAndProcessorMap.end()) {
+        printf("ERROR client[%d] not match processer.\n", client);
+        return;
+    }
+    HttpProcessor *httpProcessor = iter->second;
+    bool ret = httpProcessor->Write();
+    if (!ret) {
+        close(client);
+        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+        m_fdAndProcessorMap.erase(iter);
+    }
+    // 注册客户端的监听读事件
+    struct epoll_event clientEvent = { 0 };
+    clientEvent.events = EPOLLIN;
+    clientEvent.data.fd = client;
+    int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
+    if (res == -1) {
+        printf("ERROR  register read event fail.\n");
+        close(client);
+        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+        m_fdAndProcessorMap.erase(iter);
+        return;
+    }
 }
 
 void HttpServer::clear()
@@ -225,5 +268,9 @@ void HttpServer::clear()
     if (m_efd != -1) {
         close(m_efd);
         m_efd = -1;
-    }   
+    }
+    for (auto iter = m_fdAndProcessorMap.begin(); iter != m_fdAndProcessorMap.end(); ++iter) {
+        close(iter->first);
+        delete iter->second;
+    }
 }

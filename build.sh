@@ -15,5 +15,5 @@ else
 fi
 
 cd ${build_path}
-cmake -DCMAKE_BUILD_TYPE=Debug ..
+cmake -DCMAKE_CXX_STANDARD=11 ..
 make

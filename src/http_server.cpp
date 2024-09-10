@@ -216,6 +216,7 @@ void HttpServer::HandleClientReadEvent(const int client)
         epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
         close(client);
         m_fdAndProcessorMap.erase(iter);
+        return;
     }
     // 注册客户端的监听写事件
     struct epoll_event clientEvent = { 0 };
@@ -244,6 +245,7 @@ void HttpServer::HandleWriteEvent(const int client)
         close(client);
         epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
         m_fdAndProcessorMap.erase(iter);
+        return;
     }
     // 注册客户端的监听读事件
     struct epoll_event clientEvent = { 0 };

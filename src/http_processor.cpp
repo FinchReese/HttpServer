@@ -347,13 +347,13 @@ ResponseStatusCode HttpProcessor::HandleRequest()
     int ret = sprintf_s(filePath, MAX_FILE_NAME_LEN, "%s%s", m_sourceDir, m_url);
     if (ret == -1) {
        printf("ERROR Get file path fail, dir:%s, url:%s.\n", m_sourceDir, m_url);
-       return RESPONSE_STATUS_CODE_INTERNAL_SERVER_ERROR; 
+       return RESPONSE_STATUS_CODE_INTERNAL_SERVER_ERROR;
     }
 
     struct stat fileStat{ 0 };
     if (stat(filePath, &fileStat) == -1) {
        printf("ERROR Get file stat fail, path:%s.\n", filePath);
-       return RESPONSE_STATUS_CODE_NOT_FOUND;        
+       return RESPONSE_STATUS_CODE_NOT_FOUND;    
     }
 
     if ((fileStat.st_mode & S_IROTH) == 0) {

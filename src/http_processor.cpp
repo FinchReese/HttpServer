@@ -83,6 +83,9 @@ SendResponseReturnCode HttpProcessor::Write()
             return SEND_RESPONSE_RETURN_CODE_ERROR;
         }
         unsigned int writeSize = static_cast<unsigned int >(ret);
+        if (writeSize > m_leftRespSize) {
+            return SEND_RESPONSE_RETURN_CODE_ERROR;
+        }
         m_leftRespSize -= writeSize;
         // 发送回复消息完成
         if (m_leftRespSize == 0) {
@@ -398,7 +401,7 @@ bool HttpProcessor::FillRespInNormalCase()
     }
 
     m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base = m_writeBuff;
-    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize + 1;
+    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize;
     m_iov[CONTENT_VECTOR_INDEX].iov_base = m_fileAddr;
     m_iov[CONTENT_VECTOR_INDEX].iov_len = m_fileSize;
     m_cnt = 2;
@@ -419,7 +422,7 @@ bool HttpProcessor::FillRespInErrorCase(const StatusInfo statusInfo)
     }
 
     m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_base = m_writeBuff;
-    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize + 1;
+    m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len = m_writeSize;
     m_cnt = 1;
     m_leftRespSize = m_writeSize;
     return true;
@@ -480,6 +483,6 @@ bool HttpProcessor::AddContent(const char *content)
         printf("ERROR Write buffer fail.\n");
         return false;
     }
-    m_writeSize += static_cast<unsigned int>(ret);
+    m_writeSize += static_cast<unsigned int>(ret) + 1; // 1表示结束符
     return true;
 }

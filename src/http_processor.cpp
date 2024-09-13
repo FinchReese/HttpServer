@@ -396,7 +396,7 @@ bool HttpProcessor::FillRespInNormalCase()
     if (!AddStatusLine(RESPONSE_STATUS_CODE_OK, OK_TITLE)) {
         return false;
     }
-    if (!AddHeadField(strlen(OK_TITLE))) {
+    if (!AddHeadField(strlen(m_fileSize))) {
         return false;
     }
 

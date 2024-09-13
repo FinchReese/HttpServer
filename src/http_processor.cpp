@@ -282,7 +282,6 @@ ParseRequestReturnCode HttpProcessor::ParseHeadFields()
         m_parseStartPos += (strlen(m_parseStartPos) + 2); // 2表示跳过\r\n
         return PARSE_REQUEST_RETURN_CODE_CONTINUE;
     }
-    printf("DEBUG Not match req head field:%s.\n", m_parseStartPos);
     m_parseStartPos += (strlen(m_parseStartPos) + 2); // 2表示跳过\r\n
     return PARSE_REQUEST_RETURN_CODE_CONTINUE;
 }

@@ -111,6 +111,7 @@ SendResponseReturnCode HttpProcessor::Write()
             m_iov[STATUS_LINE_AND_HEAD_FIELD_VECTOR_INDEX].iov_len -= writeSize;                
         }
     }
+    return SEND_RESPONSE_RETURN_CODE_ERROR;
 }
 
 void HttpProcessor::Init()

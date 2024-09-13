@@ -148,14 +148,11 @@ void HttpServer::EventLoop(const int epollSize)
             int socket = events[i].data.fd;
             if (events[i].events & EPOLLIN) {
                 if (socket == m_server) {
-                    printf("EVENT HandleServerReadEvent \n");
                     HandleServerReadEvent();
                 } else {
-                    printf("EVENT HandleClientReadEvent \n");
                     HandleClientReadEvent(socket);
                 }
             } else if (events[i].events & EPOLLOUT) {
-                printf("EVENT EPOLLOUT \n");
                 HandleWriteEvent(socket);
             }
 
@@ -213,7 +210,6 @@ void HttpServer::HandleClientReadEvent(const int client)
         m_fdAndProcessorMap.erase(iter);
     }
     ret = httpProcessor->ProcessReadEvent();
-    printf("EVENT ProcessReadEvent ret=%u.\n", ret);
     if (!ret) {
         epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
         close(client);

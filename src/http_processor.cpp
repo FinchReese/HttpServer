@@ -57,7 +57,7 @@ bool HttpProcessor::Read()
         printf("ERROR read fail, socket id = %d\n", m_socketId);
         return false;
     }
-    printf("Read msg:\n%s\n", m_request);
+    printf("\nEVENT Read msg:\n%s\n\n", m_request);
     m_currentRequestSize += readSize;
     return true;
 }
@@ -68,7 +68,11 @@ SendResponseReturnCode HttpProcessor::Write()
         printf("ERROR No content need to send.\n");
         return SEND_RESPONSE_RETURN_CODE_ERROR;
     }
-    printf("EVENT m_writeBuff:\n%s\n", m_writeBuff);
+    printf("\nEVENT m_writeBuff:\n%s", m_writeBuff);
+    if (m_cnt == VECTOR_COUNT) {
+        printf("%s", m_fileAddr);
+    }
+    printf("\n\n");
     ssize_t ret;
     while (true) {
         ret = writev(m_socketId, m_iov, m_cnt);

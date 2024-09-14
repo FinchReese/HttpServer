@@ -135,7 +135,7 @@ void HttpProcessor::Init()
     m_fileAddr = nullptr;
     m_fileSize = 0;
     memset(m_iov, 0, sizeof(m_iov));
-    int m_cnt = 0;
+    m_cnt = 0;
     m_leftRespSize = 0; // 剩余回复字节数
 }
 

@@ -132,7 +132,6 @@ void HttpServer::EventLoop(const int epollSize)
     }
 
     bool stopFlag = false;
-    bool timeout = false;
     while (!stopFlag) {
         int ret = epoll_wait(m_efd, events, epollSize, -1);
         if (ret == -1) {

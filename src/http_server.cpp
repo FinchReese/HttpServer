@@ -207,6 +207,7 @@ void HttpServer::HandleClientReadEvent(const int client)
         epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
         close(client);
         m_fdAndProcessorMap.erase(iter);
+        return;
     }
     ret = httpProcessor->ProcessReadEvent();
     if (!ret) {

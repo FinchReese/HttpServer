@@ -15,5 +15,5 @@ else
 fi
 
 cd ${build_path}
-cmake -DCMAKE_CXX_STANDARD=11 ..
+cmake ..
 make

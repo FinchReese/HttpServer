@@ -57,7 +57,17 @@ bool HttpProcessor::Read()
         printf("ERROR read fail, socket id = %d\n", m_socketId);
         return false;
     }
-    printf("\nEVENT client[%d] Read msg:\n%s\n\n", m_socketId,m_request);
+
+    struct sockaddr_in clientAddr = { 0 };
+    socklen_t clientAddrLen = sizeof(clientAddr);
+    int ret = getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
+    if (ret == -1) {
+        printf("\nDEBUG  client[%u] recv msg:\n%s\n", m_socketId, m_request);
+    } else {
+    printf("\nDEBUG  client[%u] %s:%hu recv msg:\n%s\n", m_socketId, inet_ntoa(clientAddr.sin_addr),
+        ntohs(clientAddr.sin_port), m_request);
+    }
+
     m_currentRequestSize += readSize;
     return true;
 }
@@ -68,11 +78,20 @@ SendResponseReturnCode HttpProcessor::Write()
         printf("ERROR No content need to send.\n");
         return SEND_RESPONSE_RETURN_CODE_ERROR;
     }
-    printf("\nEVENT m_writeBuff:\n%s", m_writeBuff);
+    struct sockaddr_in clientAddr = { 0 };
+    socklen_t clientAddrLen = sizeof(clientAddr);
+    int ret = getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
+    if (ret == -1) {
+        printf("DEBUG client[%u] msg to send:\n", m_socketId);
+    } else {
+    printf("DEBUG client[%u] %s:%hu msg to send:\n", m_socketId, inet_ntoa(clientAddr.sin_addr),
+        ntohs(clientAddr.sin_port));
+    }
+    printf("%s", m_writeBuff);
     if (m_cnt == VECTOR_COUNT) {
         printf("%s", m_fileAddr);
     }
-    printf("\n\n");
+    printf("\n");
     ssize_t ret;
     while (true) {
         ret = writev(m_socketId, m_iov, m_cnt);

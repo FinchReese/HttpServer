@@ -242,18 +242,8 @@ void HttpServer::HandleWriteEvent(const int client)
     printf("EVENT  Write ret:%u.\n", ret);
     switch (ret) {
         case SEND_RESPONSE_RETURN_CODE_AGAIN: {
-            // 注册客户端的监听写事件
-            struct epoll_event clientEvent = { 0 };
-            clientEvent.events = EPOLLOUT;
-            clientEvent.data.fd = client;
-            int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
-            if (res == -1) {
-                printf("ERROR  register out event fail.\n");
-                close(client);
-                epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-                m_fdAndProcessorMap.erase(iter);
-            }
-            break;   
+            // 写缓冲区满不需要做额外处理，等待写缓冲区有空间即可
+            break;
         }
         case SEND_RESPONSE_RETURN_CODE_NEXT: {
             // 注册客户端的监听读事件

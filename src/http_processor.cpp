@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "http_processor.h"
 
 const char *WHITE_SPACE_CHARS = " \t";
@@ -60,8 +62,7 @@ bool HttpProcessor::Read()
 
     struct sockaddr_in clientAddr = { 0 };
     socklen_t clientAddrLen = sizeof(clientAddr);
-    int ret = getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
-    if (ret == -1) {
+    if (getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen) == -1) {
         printf("\nDEBUG  client[%u] recv msg:\n%s\n", m_socketId, m_request);
     } else {
     printf("\nDEBUG  client[%u] %s:%hu recv msg:\n%s\n", m_socketId, inet_ntoa(clientAddr.sin_addr),
@@ -80,8 +81,7 @@ SendResponseReturnCode HttpProcessor::Write()
     }
     struct sockaddr_in clientAddr = { 0 };
     socklen_t clientAddrLen = sizeof(clientAddr);
-    int ret = getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen);
-    if (ret == -1) {
+    if (getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen) == -1) {
         printf("DEBUG client[%u] msg to send:\n", m_socketId);
     } else {
     printf("DEBUG client[%u] %s:%hu msg to send:\n", m_socketId, inet_ntoa(clientAddr.sin_addr),

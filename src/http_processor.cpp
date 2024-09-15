@@ -57,7 +57,7 @@ bool HttpProcessor::Read()
         printf("ERROR read fail, socket id = %d\n", m_socketId);
         return false;
     }
-    printf("\nEVENT Read msg:\n%s\n\n", m_request);
+    printf("\nEVENT client[%d] Read msg:\n%s\n\n", m_socketId,m_request);
     m_currentRequestSize += readSize;
     return true;
 }

@@ -248,7 +248,7 @@ void HttpServer::HandleWriteEvent(const int client)
             clientEvent.data.fd = client;
             int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
             if (res == -1) {
-                printf("ERROR  register read event fail.\n");
+                printf("ERROR  register out event fail.\n");
                 close(client);
                 epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
                 m_fdAndProcessorMap.erase(iter);
@@ -262,7 +262,7 @@ void HttpServer::HandleWriteEvent(const int client)
             clientEvent.data.fd = client;
             int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
             if (res == -1) {
-                printf("ERROR  register read event fail.\n");
+                printf("ERROR  register in event fail.\n");
                 close(client);
                 epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
                 m_fdAndProcessorMap.erase(iter);

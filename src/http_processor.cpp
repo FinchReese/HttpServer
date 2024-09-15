@@ -62,7 +62,7 @@ bool HttpProcessor::Read()
 
     struct sockaddr_in clientAddr = { 0 };
     socklen_t clientAddrLen = sizeof(clientAddr);
-    if (getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen) == -1) {
+    if (getpeername(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen) == -1) {
         printf("\nDEBUG  client[%u] recv msg:\n%s\n", m_socketId, m_request);
     } else {
     printf("\nDEBUG  client[%u] %s:%hu recv msg:\n%s\n", m_socketId, inet_ntoa(clientAddr.sin_addr),
@@ -81,7 +81,7 @@ SendResponseReturnCode HttpProcessor::Write()
     }
     struct sockaddr_in clientAddr = { 0 };
     socklen_t clientAddrLen = sizeof(clientAddr);
-    if (getsockname(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen) == -1) {
+    if (getpeername(m_socketId, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientAddrLen) == -1) {
         printf("DEBUG client[%u] msg to send:\n", m_socketId);
     } else {
     printf("DEBUG client[%u] %s:%hu msg to send:\n", m_socketId, inet_ntoa(clientAddr.sin_addr),

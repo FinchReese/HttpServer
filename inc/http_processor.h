@@ -8,6 +8,12 @@
 const unsigned int MAX_READ_BUFF_LEN = 2048;
 const unsigned int MAX_WRITE_BUFF_LEN = 1024;
 
+enum RecvRequestReturnCode : unsigned char {
+    RECV_REQUEST_RETURN_CODE_SUCCESS = 0, // 读消息成功
+    RECV_REQUEST_RETURN_CODE_ERROR = 1, // 读消息出错
+    RECV_REQUEST_RETURN_CODE_AGAIN = 2, // 再试一次
+};
+
 enum GetSingleLineState : unsigned char {
     GET_SINGLE_LINE_OK = 0,
     GET_SINGLE_LINE_CONTINUE = 1,
@@ -61,7 +67,7 @@ class HttpProcessor {
 public:
     HttpProcessor(const int socketId, const std::string &sourceDir);
     ~HttpProcessor();
-    bool Read();
+    RecvRequestReturnCode Read();
     SendResponseReturnCode Write();
     bool ProcessReadEvent();
 private:

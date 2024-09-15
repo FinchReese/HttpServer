@@ -52,13 +52,17 @@ bool HttpProcessor::ProcessReadEvent()
     return Response(ret);
 }
 
-bool HttpProcessor::Read()
+RecvRequestReturnCode HttpProcessor::Read()
 {
     ssize_t readSize = read(m_socketId, m_request + m_currentRequestSize, MAX_READ_BUFF_LEN - m_currentRequestSize);
     if (readSize <= 0) {
+        if (errno == EAGAIN) {
+            return RECV_REQUEST_RETURN_CODE_AGAIN;
+        }
         printf("ERROR read fail, socket id = %d\n", m_socketId);
-        return false;
+        return RECV_REQUEST_RETURN_CODE_ERROR;
     }
+    m_currentRequestSize += readSize;
 
     struct sockaddr_in clientAddr = { 0 };
     socklen_t clientAddrLen = sizeof(clientAddr);
@@ -69,8 +73,7 @@ bool HttpProcessor::Read()
         ntohs(clientAddr.sin_port), m_request);
     }
 
-    m_currentRequestSize += readSize;
-    return true;
+    return RECV_REQUEST_RETURN_CODE_SUCCESS;
 }
 
 SendResponseReturnCode HttpProcessor::Write()

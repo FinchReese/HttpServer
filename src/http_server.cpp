@@ -202,31 +202,41 @@ void HttpServer::HandleClientReadEvent(const int client)
         return;
     }
     HttpProcessor *httpProcessor = iter->second;
-    bool ret = httpProcessor->Read();
-    if (!ret) {
-        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-        close(client);
-        m_fdAndProcessorMap.erase(iter);
-        return;
-    }
-    ret = httpProcessor->ProcessReadEvent();
-    if (!ret) {
-        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-        close(client);
-        m_fdAndProcessorMap.erase(iter);
-        return;
-    }
-    // 注册客户端的监听写事件
-    struct epoll_event clientEvent = { 0 };
-    clientEvent.events = EPOLLOUT;
-    clientEvent.data.fd = client;
-    int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
-    if (res == -1) {
-        printf("ERROR Register write event fail.\n");
-        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-        close(client);
-        m_fdAndProcessorMap.erase(iter);
-        return;
+    RecvRequestReturnCode returnCode = httpProcessor->Read();
+    switch (returnCode) {
+        case RECV_REQUEST_RETURN_CODE_AGAIN: { // 读缓冲区为空等待下一次读事件
+            break;
+        }
+        case RECV_REQUEST_RETURN_CODE_ERROR: {  // 读消息出错断开连接
+            epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+            close(client);
+            m_fdAndProcessorMap.erase(iter);
+            break;
+        }
+        case RECV_REQUEST_RETURN_CODE_SUCCESS: { // 读消息成功处理请求
+            bool ret = httpProcessor->ProcessReadEvent();
+            if (!ret) {
+                epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+                close(client);
+                m_fdAndProcessorMap.erase(iter);
+                break;
+            }
+            // 注册客户端的监听写事件
+            struct epoll_event clientEvent = { 0 };
+            clientEvent.events = EPOLLOUT;
+            clientEvent.data.fd = client;
+            int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
+            if (res == -1) {
+                printf("ERROR Register write event fail.\n");
+                epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+                close(client);
+                m_fdAndProcessorMap.erase(iter);
+            }
+            break;
+        }
+        default: { // 不会有其他响应码，编码规范要求要有default分支
+            break;
+        }
     }
 }
 

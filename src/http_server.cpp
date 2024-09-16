@@ -278,7 +278,7 @@ void HttpServer::HandleServerReadEvent()
     // 将客户端注册到过期时间最小堆
     time_t curSec = time(NULL);
     ClientExpire clientExpire = { .clientFd = client, .expire = curSec + CLIENT_EXPIRE_INTERVAL };
-    if (m_clientExpireMinHeap.Push(clientExpire) == false) {、
+    if (m_clientExpireMinHeap.Push(clientExpire) == false) {
         delete httpProcessor;
         m_fdAndProcessorMap.erase(client);
         epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);

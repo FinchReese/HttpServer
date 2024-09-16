@@ -399,14 +399,14 @@ void HttpServer::HandleClientExpire()
     ClientExpire clientExpire = { 0 };
     bool ret;
     do {
-        ret = m_clientExpireMinHeap.top(clientExpire);
+        ret = m_clientExpireMinHeap.Top(clientExpire);
         if (!ret) {
             break;
         }
         if (clientExpire.expire > curSec) {
             break;
         }
-        DelClient(clientExpire.client);
+        DelClient(clientExpire.clientFd);
     } while (true);
 }
 

@@ -348,7 +348,10 @@ void HttpServer::DelClient(const int client)
 {
     epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
     close(client);
-    m_fdAndProcessorMap.erase(iter);
+    std::map<int, HttpProcessor*>::iterator iter = m_fdAndProcessorMap.find(client);
+    if (iter != m_fdAndProcessorMap.end()) {
+        m_fdAndProcessorMap.erase(iter);
+    }
     m_clientExpireMinHeap.Delete(client);
 }
 

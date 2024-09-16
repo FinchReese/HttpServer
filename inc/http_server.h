@@ -19,16 +19,19 @@ private:
     static bool InitPipeFd();
     bool RegisterServerReadEvent();
     bool RegisterPipeReadEvent();
+    bool RegisterHandleSignal(const int signalId);
+    static void WriteSignalToPipeFd(int signalId);
     void EventLoop(const int epollSize);
     void HandleServerReadEvent();
     void HandleClientReadEvent(const int client);
     void HandlePipeReadEvent();
     void HandleWriteEvent(const int client);
     void clear();
+    static void ClosePipefd();
 private:
     int m_server { -1 }; // 记录socket服务器套接字，初始化为-1是无效值
     int m_efd { -1 };
-    static int m_pipefd[PIPE_FD_NUM] { -1, -1 }; 
+    static int m_pipefd[PIPE_FD_NUM];
     std::string m_sourceDir;
     std::map<int, HttpProcessor*> m_fdAndProcessorMap; // 客户端套接字和处理对象的映射
 };

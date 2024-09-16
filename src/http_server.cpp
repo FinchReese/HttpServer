@@ -12,6 +12,8 @@ enum PipeFdIdx {
     PIPE_READ_FD_INDEX = 1, // 用于读的套接字
 };
 
+int HttpServer::m_pipefd[PIPE_FD_NUM] { -1, -1 };
+
 HttpServer::HttpServer()
 {}
 
@@ -50,6 +52,15 @@ void HttpServer::Run(const char *ipAddr, const unsigned short int portId,  const
         clear();
         return;
     }
+    if (RegisterPipeReadEvent() == false) {
+        clear();
+        return;
+    }
+    if (RegisterHandleSignal(SIGALRM) == false) {
+        clear();
+        return;
+    }
+    alarm(2);
     m_sourceDir = sourceDir;
     EventLoop(epollSize);
     clear();
@@ -121,6 +132,7 @@ bool HttpServer::InitEpollFd(const int epollSize)
 
 bool HttpServer::InitPipeFd()
 {
+    ClosePipefd();
     int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, m_pipefd);
     if (ret == -1) {
         printf("ERROR  socketpair fail.\n");
@@ -154,6 +166,28 @@ bool HttpServer::RegisterPipeReadEvent()
         return false;
     }
     return true;
+}
+
+bool HttpServer::RegisterHandleSignal(const int signalId)
+{
+    struct sigaction sa = { 0 };
+    sa.sa_handler = WriteSignalToPipeFd;
+    sigfillset(&sa.sa_mask);
+    sa.sa_flags |= SA_RESTART;
+    if (sigaction(signalId, &sa, NULL) == -1) {
+        printf("ERROR sigaction fail, signalId = %d.\n", signalId);
+        return false;
+    }
+    return true;
+}
+
+void HttpServer::WriteSignalToPipeFd(int signalId)
+{
+    int tmpErrno = errno;
+    ssize_t ret = write(m_pipefd[PIPE_WRITE_FD_INDEX], &signalId, sizeof(signalId));
+    printf("DEBUG  WriteSignalToPipeFd signalId=%d, ret=%ld, tmpErrno=%d, errno=%d\n",
+        signalId, ret, tmpErrno, errno);
+    errno = tmpErrno;
 }
 
 void HttpServer::EventLoop(const int epollSize)
@@ -237,6 +271,9 @@ void HttpServer::HandlePipeReadEvent()
         return;
     }
     printf("EVENT Recv Signal %d\n", signalid);
+    if (signalid == SIGALRM) {
+        alarm(2);
+    }
 }
 
 void HttpServer::HandleClientReadEvent(const int client)
@@ -337,6 +374,11 @@ void HttpServer::clear()
         close(iter->first);
         delete iter->second;
     }
+    ClosePipefd();
+}
+
+void HttpServer::ClosePipefd()
+{
     if (m_pipefd[PIPE_WRITE_FD_INDEX] != -1) {
         close(m_pipefd[PIPE_WRITE_FD_INDEX]);
         m_pipefd[PIPE_WRITE_FD_INDEX] = -1;

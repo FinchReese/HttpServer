@@ -209,6 +209,7 @@ bool ClientExpireMinHeap::Delete(const int clientFd)
     time_t oldExpire = m_heap[heapIdx].expire; 
     m_heap[heapIdx] = m_heap[m_currentSize - 1];
     m_socketAndHeapIdxMap[m_heap[heapIdx].clientFd] = heapIdx;
+    m_socketAndHeapIdxMap.erase(clientFd);
     m_currentSize--;
     // 调整位置
     if (m_heap[heapIdx].expire < oldExpire) {

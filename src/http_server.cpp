@@ -314,13 +314,13 @@ void HttpServer::HandleClientReadEvent(const int client)
             break;
         }
         case RECV_REQUEST_RETURN_CODE_ERROR: {  // 读消息出错断开连接
-            DelClient();
+            DelClient(client);
             break;
         }
         case RECV_REQUEST_RETURN_CODE_SUCCESS: { // 读消息成功处理请求
             bool ret = httpProcessor->ProcessReadEvent();
             if (!ret) {
-                DelClient();
+                DelClient(client);
                 break;
             }
             // 注册客户端的监听写事件
@@ -330,7 +330,7 @@ void HttpServer::HandleClientReadEvent(const int client)
             int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
             if (res == -1) {
                 printf("ERROR Register write event fail.\n");
-                DelClient();
+                DelClient(client);
             }
             // 更新客户端的过期时间
             time_t curSec = time(NULL);

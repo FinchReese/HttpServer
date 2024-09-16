@@ -7,6 +7,11 @@
 #include <errno.h>
 #include "http_server.h"
 
+enum PipeFdIdx {
+    PIPE_WRITE_FD_INDEX = 0, // 用于写的套接字
+    PIPE_READ_FD_INDEX = 1, // 用于读的套接字
+};
+
 HttpServer::HttpServer()
 {}
 
@@ -33,6 +38,11 @@ void HttpServer::Run(const char *ipAddr, const unsigned short int portId,  const
             close(m_server);
             m_server = -1;
         }
+        return;
+    }
+
+    if (InitPipeFd() == false) {
+        clear();
         return;
     }
 
@@ -109,6 +119,16 @@ bool HttpServer::InitEpollFd(const int epollSize)
     return true;
 }
 
+bool HttpServer::InitPipeFd()
+{
+    int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, m_pipefd);
+    if (ret == -1) {
+        printf("ERROR  socketpair fail.\n");
+        return false;
+    }
+    return true;
+}
+
 bool HttpServer::RegisterServerReadEvent()
 {
     struct epoll_event serverEvent = { 0 };
@@ -120,6 +140,19 @@ bool HttpServer::RegisterServerReadEvent()
         return false;
     }
 
+    return true;
+}
+
+bool HttpServer::RegisterPipeReadEvent()
+{
+    struct epoll_event pipeEvent = { 0 };
+    pipeEvent.events = EPOLLIN;
+    pipeEvent.data.fd = m_pipefd[PIPE_READ_FD_INDEX];
+    int ret = epoll_ctl(m_efd, EPOLL_CTL_ADD, m_pipefd[PIPE_READ_FD_INDEX], &pipeEvent);
+    if (ret == -1) {
+        printf("ERROR  Register pipe read event fail.\n");
+        return false;
+    }
     return true;
 }
 
@@ -148,6 +181,8 @@ void HttpServer::EventLoop(const int epollSize)
             if (events[i].events & EPOLLIN) {
                 if (socket == m_server) {
                     HandleServerReadEvent();
+                } else if (socket == m_pipefd[PIPE_READ_FD_INDEX]) {
+                    HandlePipeReadEvent();
                 } else {
                     HandleClientReadEvent(socket);
                 }
@@ -192,6 +227,16 @@ void HttpServer::HandleServerReadEvent()
         return;
     }
     m_fdAndProcessorMap[client] = httpProcessor;
+}
+
+void HttpServer::HandlePipeReadEvent()
+{
+    int signalid = -1;
+    ssize_t readBytes = read(m_pipefd[PIPE_READ_FD_INDEX], &signalid, sizeof(signalid));
+    if (readBytes != sizeof(signalid)) {
+        return;
+    }
+    printf("EVENT Recv Signal %d\n", signalid);
 }
 
 void HttpServer::HandleClientReadEvent(const int client)
@@ -291,5 +336,13 @@ void HttpServer::clear()
     for (auto iter = m_fdAndProcessorMap.begin(); iter != m_fdAndProcessorMap.end(); ++iter) {
         close(iter->first);
         delete iter->second;
+    }
+    if (m_pipefd[PIPE_WRITE_FD_INDEX] != -1) {
+        close(m_pipefd[PIPE_WRITE_FD_INDEX]);
+        m_pipefd[PIPE_WRITE_FD_INDEX] = -1;
+    }
+    if (m_pipefd[PIPE_READ_FD_INDEX] != -1) {
+        close(m_pipefd[PIPE_READ_FD_INDEX]);
+        m_pipefd[PIPE_READ_FD_INDEX] = -1;
     }
 }

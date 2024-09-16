@@ -211,7 +211,7 @@ bool ClientExpireMinHeap::Delete(const int clientFd)
     // 调整位置
     if (m_heap[heapIdx].expire < oldExpire) {
         SiftUp(heapIdx);
-    } else if (m_heap[heapIdx] > oldExpire) {
+    } else if (m_heap[heapIdx].expire > oldExpire) {
         SiftDown(heapIdx);
     }
     return true;

@@ -136,6 +136,7 @@ bool ClientExpireMinHeap::Push(const ClientExpire &node)
 {
     if (m_currentSize == m_capacity) {
         if (Resize() == false) {
+            printf("ERROR  Heap Full.\n");
             return false;
         }
     }
@@ -143,6 +144,7 @@ bool ClientExpireMinHeap::Push(const ClientExpire &node)
     std::pair<int, unsigned int> socketAndHeapIdxPair(node.clientFd, m_currentSize);
     auto ret = m_socketAndHeapIdxMap.insert(socketAndHeapIdxPair);
     if (!ret.second) {
+        printf("ERROR  socket id already exits.\n");
         return false;
     }
     m_heap[m_currentSize] = node;

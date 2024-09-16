@@ -1,6 +1,7 @@
 #include "client_expire_min_heap.h"
 
 const unsigned int MAX_U32 = 0xFFFFFFFF;
+const unsigned int ROOT_NODE_INDEX = 0; // 根节点下标为0
 
 ClientExpireMinHeap::ClientExpireMinHeap()
 {}
@@ -82,7 +83,7 @@ void ClientExpireMinHeap::SiftDown(const unsigned int startIdx)
 
 void ClientExpireMinHeap::SiftUp(const unsigned int startIdx)
 {
-    if (startIdx == 0) { // 目标节点是根节点不需要调整
+    if (startIdx == ROOT_NODE_INDEX) { // 目标节点是根节点不需要调整
         return;
     }
 
@@ -151,12 +152,12 @@ bool ClientExpireMinHeap::Pop(ClientExpire &node)
         return false;
     }
 
-    node = m_heap[0];
+    node = m_heap[ROOT_NODE_INDEX];
     m_socketAndHeapIdxMap.erase(node.clientFd);
-    m_heap[0] = m_heap[m_currentSize - 1]; // 将最后一个元素移到根节点
-    m_socketAndHeapIdxMap[m_heap[m_currentSize - 1].clientFd] = 0;
+    m_heap[ROOT_NODE_INDEX] = m_heap[m_currentSize - 1]; // 将最后一个元素移到根节点
+    m_socketAndHeapIdxMap[m_heap[ROOT_NODE_INDEX].clientFd] = ROOT_NODE_INDEX;
     m_currentSize--;
-    SiftDown(0);
+    SiftDown(ROOT_NODE_INDEX);
     return true;
 }
 
@@ -166,7 +167,7 @@ bool ClientExpireMinHeap::Top(ClientExpire &node)
         return false;
     }
 
-    node = m_heap[0];
+    node = m_heap[ROOT_NODE_INDEX];
     return true;
 }
 

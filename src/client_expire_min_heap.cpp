@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "client_expire_min_heap.h"
 
 const unsigned int MAX_U32 = 0xFFFFFFFF;

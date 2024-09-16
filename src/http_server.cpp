@@ -254,8 +254,6 @@ void HttpServer::HandleServerReadEvent()
         printf("ERROR  accept fail.\n");
         return;
     }
-    printf("EVENT  new connect: client[%d] with %s:%hu.\n", client, inet_ntoa(clientAddr.sin_addr),
-        ntohs(clientAddr.sin_port));
     // 注册客户端的监听读事件
     struct epoll_event clientEvent = { 0 };
     clientEvent.events = EPOLLIN;
@@ -285,6 +283,8 @@ void HttpServer::HandleServerReadEvent()
         close(client);
         return;
     }
+    printf("EVENT  new connect: client[%d] with %s:%hu.\n", client, inet_ntoa(clientAddr.sin_addr),
+        ntohs(clientAddr.sin_port));
 }
 
 void HttpServer::HandlePipeReadEvent()

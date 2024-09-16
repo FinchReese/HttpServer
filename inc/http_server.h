@@ -3,6 +3,7 @@
 #include <string>
 #include <map>
 #include "http_processor.h"
+#include "client_expire_min_heap.h"
 
 const unsigned int PIPE_FD_NUM = 2; // 一对能互相通信的scoket，数量为2
 
@@ -24,6 +25,7 @@ private:
     void EventLoop(const int epollSize);
     void HandleServerReadEvent();
     void HandleClientReadEvent(const int client);
+    void DelClient(const int client);
     void HandlePipeReadEvent();
     void HandleWriteEvent(const int client);
     void clear();
@@ -31,9 +33,11 @@ private:
 private:
     int m_server { -1 }; // 记录socket服务器套接字，初始化为-1是无效值
     int m_efd { -1 };
+    bool m_checkClientExpire { false };
     static int m_pipefd[PIPE_FD_NUM];
     std::string m_sourceDir;
     std::map<int, HttpProcessor*> m_fdAndProcessorMap; // 客户端套接字和处理对象的映射
+    ClientExpireMinHeap m_clientExpireMinHeap;
 };
 
 #endif

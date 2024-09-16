@@ -5,12 +5,17 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <time.h>
 #include "http_server.h"
 
 enum PipeFdIdx {
     PIPE_WRITE_FD_INDEX = 0, // 用于写的套接字
     PIPE_READ_FD_INDEX = 1, // 用于读的套接字
 };
+
+const unsigned int CLIENT_EXPIRE_MIN_HEAP_DEFAULT_SIZE = 10; // 客户端过期时间最小堆默认大小为10
+const unsigned int TIMER_INTERVAL = 5; // 定时器间隔设置为5秒
+const unsigned int CLIENT_EXPIRE_INTERVAL = TIMER_INTERVAL * 3; // 客户端过期时间间隔设置为3个定时器间隔
 
 int HttpServer::m_pipefd[PIPE_FD_NUM] { -1, -1 };
 
@@ -48,6 +53,11 @@ void HttpServer::Run(const char *ipAddr, const unsigned short int portId,  const
         return;
     }
 
+    if (m_clientExpireMinHeap.Init(CLIENT_EXPIRE_MIN_HEAP_DEFAULT_SIZE) == false) {
+        clear();
+        return;        
+    }
+
     if (RegisterServerReadEvent() == false) {
         clear();
         return;
@@ -60,7 +70,7 @@ void HttpServer::Run(const char *ipAddr, const unsigned short int portId,  const
         clear();
         return;
     }
-    alarm(2);
+    alarm(TIMER_INTERVAL); // 开启定时器
     m_sourceDir = sourceDir;
     EventLoop(epollSize);
     clear();
@@ -223,7 +233,11 @@ void HttpServer::EventLoop(const int epollSize)
             } else if (events[i].events & EPOLLOUT) {
                 HandleWriteEvent(socket);
             }
-
+        }
+        if (m_checkClientExpire) {
+            HandleClientExpire();
+            m_checkClientExpire = false;
+            alarm(TIMER_INTERVAL); // 重启定时器
         }
     }
 
@@ -242,7 +256,6 @@ void HttpServer::HandleServerReadEvent()
     }
     printf("EVENT  new connect: client[%d] with %s:%hu.\n", client, inet_ntoa(clientAddr.sin_addr),
         ntohs(clientAddr.sin_port));
-
     // 注册客户端的监听读事件
     struct epoll_event clientEvent = { 0 };
     clientEvent.events = EPOLLIN;
@@ -253,6 +266,7 @@ void HttpServer::HandleServerReadEvent()
         close(client);
         return;
     }
+    // 创建客户端的请求处理器
     HttpProcessor *httpProcessor = new HttpProcessor(client, m_sourceDir);
     if (httpProcessor == nullptr) {
         printf("ERROR  Create HttpProcessor fail.\n");
@@ -261,6 +275,16 @@ void HttpServer::HandleServerReadEvent()
         return;
     }
     m_fdAndProcessorMap[client] = httpProcessor;
+    // 将客户端注册到过期时间最小堆
+    time_t curSec = time(NULL);
+    ClientExpire clientExpire = { .clientFd = client, .expire = curSec + CLIENT_EXPIRE_INTERVAL };
+    if (m_clientExpireMinHeap.Push(clientExpire) == false) {、
+        delete httpProcessor;
+        m_fdAndProcessorMap.erase(client);
+        epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+        close(client);
+        return;
+    }
 }
 
 void HttpServer::HandlePipeReadEvent()
@@ -272,7 +296,7 @@ void HttpServer::HandlePipeReadEvent()
     }
     printf("EVENT Recv Signal %d\n", signalid);
     if (signalid == SIGALRM) {
-        alarm(2);
+        m_checkClientExpire = true;
     }
 }
 
@@ -290,17 +314,13 @@ void HttpServer::HandleClientReadEvent(const int client)
             break;
         }
         case RECV_REQUEST_RETURN_CODE_ERROR: {  // 读消息出错断开连接
-            epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-            close(client);
-            m_fdAndProcessorMap.erase(iter);
+            DelClient();
             break;
         }
         case RECV_REQUEST_RETURN_CODE_SUCCESS: { // 读消息成功处理请求
             bool ret = httpProcessor->ProcessReadEvent();
             if (!ret) {
-                epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-                close(client);
-                m_fdAndProcessorMap.erase(iter);
+                DelClient();
                 break;
             }
             // 注册客户端的监听写事件
@@ -310,16 +330,26 @@ void HttpServer::HandleClientReadEvent(const int client)
             int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
             if (res == -1) {
                 printf("ERROR Register write event fail.\n");
-                epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
-                close(client);
-                m_fdAndProcessorMap.erase(iter);
+                DelClient();
             }
+            // 更新客户端的过期时间
+            time_t curSec = time(NULL);
+            ClientExpire clientExpire = { .clientFd = client, .expire = curSec + CLIENT_EXPIRE_INTERVAL };
+            m_clientExpireMinHeap.Modify(clientExpire);
             break;
         }
         default: { // 不会有其他响应码，编码规范要求要有default分支
             break;
         }
     }
+}
+
+void HttpServer::DelClient(const int client)
+{
+    epoll_ctl(m_efd, EPOLL_CTL_DEL, client, NULL);
+    close(client);
+    m_fdAndProcessorMap.erase(iter);
+    m_clientExpireMinHeap.Delete(client);
 }
 
 void HttpServer::HandleWriteEvent(const int client)
@@ -358,6 +388,23 @@ void HttpServer::HandleWriteEvent(const int client)
             break;            
         }
     }
+}
+
+void HttpServer::HandleClientExpire()
+{
+    time_t curSec = time(NULL);
+    ClientExpire clientExpire = { 0 };
+    bool ret;
+    do {
+        ret = m_clientExpireMinHeap.top(clientExpire);
+        if (!ret) {
+            break;
+        }
+        if (clientExpire.expire > curSec) {
+            break;
+        }
+        DelClient(clientExpire.client);
+    } while (true);
 }
 
 void HttpServer::clear()

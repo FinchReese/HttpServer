@@ -28,6 +28,7 @@ private:
     void DelClient(const int client);
     void HandlePipeReadEvent();
     void HandleWriteEvent(const int client);
+    void HandleClientExpire();
     void clear();
     static void ClosePipefd();
 private:

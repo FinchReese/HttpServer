@@ -138,9 +138,13 @@ bool ClientExpireMinHeap::Push(const ClientExpire &node)
             return false;
         }
     }
-    
+
+    std::pair<int, unsigned int> socketAndHeapIdxPair(node.clientFd, m_currentSize);
+    auto ret = m_socketAndHeapIdxMap.insert(socketAndHeapIdxPair);
+    if (!ret.second) {
+        return false;
+    }
     m_heap[m_currentSize] = node;
-    auto ret = m_socketAndHeapIdxMap.insert({node.clientFd, m_currentSize});
     SiftUp(m_currentSize);
     ++m_currentSize;
     return true;

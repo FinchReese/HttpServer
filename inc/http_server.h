@@ -40,7 +40,7 @@ private:
     void HandleClientExpire();
     void clear();
     static void ClosePipefd();
-    static void *TaskFunction(void *arg);
+    static void ProcessReq(void *arg);
 private:
     int m_server { -1 }; // 记录socket服务器套接字，初始化为-1是无效值
     int m_efd { -1 };

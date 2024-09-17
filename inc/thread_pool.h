@@ -5,7 +5,7 @@
 #include <semaphore.h>
 #include <queue>
 
-typedef void *(TaskFunction)(void *);
+typedef void (*TaskFunction)(void *);
 
 template <class T>
 struct Task {
@@ -21,6 +21,7 @@ public:
     bool Init();
     bool AddTask(const Task<T> &task);
 private:
+    void Clear();
     static void *ThreadFunction(void *arg);
     void Run();
 private:

@@ -324,7 +324,7 @@ void HttpServer::HandleClientReadEvent(const int client)
         }
         case RECV_REQUEST_RETURN_CODE_SUCCESS: { // 读消息成功处理请求
             HttpReqProcessArg arg = { .httpServer = this, .httpProcessor = httpProcessor, .client = client };
-            Task<HttpReqProcessArg> task = { .function = TaskFunction, .arg = arg };
+            Task<HttpReqProcessArg> task = { .function = HttpServer::ProcessReq, .arg = arg };
             m_threadPool.AddTask(task);
         }
         default: { // 不会有其他响应码，编码规范要求要有default分支
@@ -428,22 +428,22 @@ void HttpServer::ClosePipefd()
     }
 }
 
-void *HttpServer::TaskFunction(void *arg)
+void HttpServer::ProcessReq(void *arg)
 {
     HttpReqProcessArg *httpReqProcessArg = reinterpret_cast<HttpReqProcessArg *>(arg);
     if (httpReqProcessArg == nullptr) {
-        return nullptr;
+        return;
     }
     HttpServer *httpServer = httpReqProcessArg->httpServer;
     HttpProcessor *httpProcessor = httpReqProcessArg->httpProcessor;
     if (httpServer == nullptr || httpProcessor == nullptr) {
-        return nullptr;
+        return;
     }
     int client = httpReqProcessArg->client;
     bool ret = httpProcessor->ProcessReadEvent();
     if (!ret) {
         httpServer->DelClient(client);
-        return nullptr;
+        return;
     }
     // 注册客户端的监听写事件
     struct epoll_event clientEvent = { 0 };
@@ -453,11 +453,10 @@ void *HttpServer::TaskFunction(void *arg)
     if (res == -1) {
         printf("ERROR Register write event fail.\n");
         httpServer->DelClient(client);
-        return nullptr;
+        return;
     }
     // 更新客户端的过期时间
     time_t curSec = time(NULL);
     ClientExpire clientExpire = { .clientFd = client, .expire = curSec + CLIENT_EXPIRE_INTERVAL };
     httpServer->m_clientExpireMinHeap.Modify(clientExpire);
-    return nullptr;
 }

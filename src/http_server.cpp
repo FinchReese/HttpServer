@@ -16,10 +16,11 @@ enum PipeFdIdx {
 const unsigned int CLIENT_EXPIRE_MIN_HEAP_DEFAULT_SIZE = 10; // 客户端过期时间最小堆默认大小为10
 const unsigned int TIMER_INTERVAL = 5; // 定时器间隔设置为5秒
 const unsigned int CLIENT_EXPIRE_INTERVAL = TIMER_INTERVAL * 3; // 客户端过期时间间隔设置为3个定时器间隔
+const unsigned int HANDLE_REQUEST_THREAD_NUM = 5; // 处理请求线程数量为5
 
 int HttpServer::m_pipefd[PIPE_FD_NUM] { -1, -1 };
 
-HttpServer::HttpServer()
+HttpServer::HttpServer() : m_threadPool(HANDLE_REQUEST_THREAD_NUM)
 {}
 
 HttpServer::~HttpServer()
@@ -67,6 +68,10 @@ void HttpServer::Run(const char *ipAddr, const unsigned short int portId,  const
         return;
     }
     if (RegisterHandleSignal(SIGALRM) == false) {
+        clear();
+        return;
+    }
+    if (m_threadPool.Init() == false) {
         clear();
         return;
     }
@@ -318,25 +323,9 @@ void HttpServer::HandleClientReadEvent(const int client)
             break;
         }
         case RECV_REQUEST_RETURN_CODE_SUCCESS: { // 读消息成功处理请求
-            bool ret = httpProcessor->ProcessReadEvent();
-            if (!ret) {
-                DelClient(client);
-                break;
-            }
-            // 注册客户端的监听写事件
-            struct epoll_event clientEvent = { 0 };
-            clientEvent.events = EPOLLOUT;
-            clientEvent.data.fd = client;
-            int res = epoll_ctl(m_efd, EPOLL_CTL_MOD, client, &clientEvent);
-            if (res == -1) {
-                printf("ERROR Register write event fail.\n");
-                DelClient(client);
-            }
-            // 更新客户端的过期时间
-            time_t curSec = time(NULL);
-            ClientExpire clientExpire = { .clientFd = client, .expire = curSec + CLIENT_EXPIRE_INTERVAL };
-            m_clientExpireMinHeap.Modify(clientExpire);
-            break;
+            HttpReqProcessArg arg = { .httpServer = this, .httpProcessor = httpProcessor, .client = client };
+            Task<HttpReqProcessArg> task = { .function = TaskFunction, .arg = arg };
+            m_threadPool.AddTask(task);
         }
         default: { // 不会有其他响应码，编码规范要求要有default分支
             break;
@@ -437,4 +426,38 @@ void HttpServer::ClosePipefd()
         close(m_pipefd[PIPE_READ_FD_INDEX]);
         m_pipefd[PIPE_READ_FD_INDEX] = -1;
     }
+}
+
+void *HttpServer::TaskFunction(void *arg)
+{
+    HttpReqProcessArg *httpReqProcessArg = reinterpret_cast<HttpReqProcessArg *>(arg);
+    if (httpReqProcessArg == nullptr) {
+        return nullptr;
+    }
+    HttpServer *httpServer = httpReqProcessArg->httpServer;
+    HttpProcessor *httpProcessor = httpReqProcessArg->httpProcessor;
+    if (httpServer == nullptr || httpProcessor == nullptr) {
+        return nullptr;
+    }
+    int client = httpReqProcessArg->client;
+    bool ret = httpProcessor->ProcessReadEvent();
+    if (!ret) {
+        httpServer->DelClient(client);
+        return nullptr;
+    }
+    // 注册客户端的监听写事件
+    struct epoll_event clientEvent = { 0 };
+    clientEvent.events = EPOLLOUT;
+    clientEvent.data.fd = client;
+    int res = epoll_ctl(httpServer->m_efd, EPOLL_CTL_MOD, client, &clientEvent);
+    if (res == -1) {
+        printf("ERROR Register write event fail.\n");
+        httpServer->DelClient(client);
+        return nullptr;
+    }
+    // 更新客户端的过期时间
+    time_t curSec = time(NULL);
+    ClientExpire clientExpire = { .clientFd = client, .expire = curSec + CLIENT_EXPIRE_INTERVAL };
+    httpServer->m_clientExpireMinHeap.Modify(clientExpire);
+    return nullptr;
 }

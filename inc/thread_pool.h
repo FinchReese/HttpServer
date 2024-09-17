@@ -8,10 +8,10 @@
 typedef void *(TaskFunction)(void *);
 
 template <class T>
-typedef struct {
+struct Task {
     TaskFunction function;
     T arg;
-} Task;
+};
 
 template <class T>
 class ThreadPool {

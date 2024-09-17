@@ -22,7 +22,7 @@ void ThreadPool<T>::Clear()
     }
     if (m_initSem) {
         // 销毁信号量
-        (void)sem_destropy(&m_sem);
+        (void)sem_destroy(&m_sem);
         m_initSem = false;
     }
     // 销毁线程池
@@ -45,7 +45,7 @@ bool ThreadPool<T>::Init()
     }
     m_initMutex = true;
     // 初始化信号量
-    int ret = sem_init(&m_sem, 0, 0);
+    ret = sem_init(&m_sem, 0, 0);
     if (ret != 0) {
         printf("ERROR sem_init fail, ret = %d\n", ret);
         Clear();
@@ -53,7 +53,7 @@ bool ThreadPool<T>::Init()
     }
     m_initSem = true;
     // 初始化线程池
-    m_threadPool = new thread_t[m_threadNum];
+    m_threadPool = new pthread_t[m_threadNum];
     if (m_threadPool == nullptr) {
         Clear();
         return false;
@@ -63,7 +63,7 @@ bool ThreadPool<T>::Init()
             Clear();
             return false;
         }
-        if (pthread_detach() != 0) {
+        if (pthread_detach(m_threadPool[i]) != 0) {
             Clear();
             return false;
         }

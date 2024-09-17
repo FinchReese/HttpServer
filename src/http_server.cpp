@@ -325,7 +325,9 @@ void HttpServer::HandleClientReadEvent(const int client)
         case RECV_REQUEST_RETURN_CODE_SUCCESS: { // 读消息成功处理请求
             HttpReqProcessArg arg = { .httpServer = this, .httpProcessor = httpProcessor, .client = client };
             Task<HttpReqProcessArg> task = { .function = HttpServer::ProcessReq, .arg = arg };
-            m_threadPool.AddTask(task);
+            if (m_threadPool.AddTask(task) == false) {
+                DelClient(client);
+            }
         }
         default: { // 不会有其他响应码，编码规范要求要有default分支
             break;

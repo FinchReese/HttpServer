@@ -1,13 +1,17 @@
 #include "thread_pool.h"
 
+template <class T>
 ThreadPool::ThreadPool(const unsigned int poolNum) : m_threadNum(poolNum)
 {}
 
+template <class T>
 ThreadPool::~ThreadPool()
 {
     Clear();
+    m_stop = true; // 停止子线程的任务
 }
 
+template <class T>
 void ThreadPool::Clear()
 {
     // 销毁互斥锁
@@ -27,6 +31,7 @@ void ThreadPool::Clear()
     }
 }
 
+template <class T>
 bool ThreadPool::Init()
 {
     if (m_initMutex) { // 代码逻辑可以保证m_initMutex为true，已经成功执行过Init，不需要重复执行
@@ -66,7 +71,8 @@ bool ThreadPool::Init()
     return true;
 }
 
-bool ThreadPool::AddTask(const Task &task)
+template <class T>
+bool ThreadPool::AddTask(const Task<T> &task)
 {
     if (pthread_mutex_lock(&m_mutex) != 0) {
         return false;
@@ -86,14 +92,16 @@ bool ThreadPool::AddTask(const Task &task)
     return true;
 }
 
-void *ThreadPool::ThreadFunction(void *argv)
+template <class T>
+void *ThreadPool::ThreadFunction(void *arg)
 {
-    ThreadPool *pool = reinterpret_cast<ThreadPool *>(argv);
+    ThreadPool *pool = reinterpret_cast<ThreadPool *>(arg);
     pool->Run();
-    return pool;
+    return nullptr;
 }
 
-void *ThreadPool::Run(void *argv)
+template <class T>
+void ThreadPool::Run()
 {
     while (m_stop == false) {
         if (sem_wait(&m_sem) != 0) {
@@ -108,10 +116,9 @@ void *ThreadPool::Run(void *argv)
             continue;
         }
 
-        Task task = m_queue.front();
+        Task<T> task = m_queue.front();
         m_queue.pop();
         (void)pthread_mutex_unlock(&m_mutex);
-        task.function(task.argv);
+        task.function(&task.arg);
     }
-
 }

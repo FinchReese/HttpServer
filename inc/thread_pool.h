@@ -7,27 +7,29 @@
 
 typedef void *(TaskFunction)(void *);
 
+template <class T>
 typedef struct {
     TaskFunction function;
-    void *argv;
+    T arg;
 } Task;
 
+template <class T>
 class ThreadPool {
 public:
     ThreadPool(const unsigned int threadNum);
     ~ThreadPool();
     bool Init();
-    bool AddTask(const Task &task);
+    bool AddTask(const Task<T> &task);
 private:
-    static void *ThreadFunction(void *argv);
-    void *Run(void *argv);
+    static void *ThreadFunction(void *arg);
+    void Run();
 private:
     unsigned int m_threadNum;
     pthread_t *m_threadPool { nullptr };
     bool m_stop { false };
     bool m_initMutex { false };
     bool m_initSem { false };
-    std::queue<Task> m_queue;
+    std::queue<Task<T>> m_queue;
     pthread_mutex_t m_mutex;
     sem_t m_sem;
 };
